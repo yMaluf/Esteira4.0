@@ -1,0 +1,235 @@
+bool FLAG = 0;
+bool FLAG_INICIO = 0;
+bool FLAG_FINAL = 0;
+bool FLAG_LIGAR = 0;
+#include <WiFi.h>
+#include <PubSubClient.h>
+
+const char* ssid = "Maluf";
+const char* password = "Aloise123";
+const char* mqtt_server = "test.mosquitto.org";
+
+
+const int reléHorarioPin = 19;     // Pino para direção horária
+const int reléAntiHorarioPin = 18; // Pino para direção anti-horária
+
+// Pino do botão anti-horario
+const int buttonPin = 34; // Atualizado para o pino 34
+int buttonState = 0;
+int lastButtonState = 0;
+
+
+// Receber Dados
+String my_payload;
+String my_topic;
+WiFiClient Maluf_Client;
+PubSubClient client(Maluf_Client);
+
+void setup_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Se conectando a ");
+  Serial.println(ssid);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi Conectado");
+  Serial.println("Endereço IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  
+  String conc_payload;
+  for (int i = 0; i < length; i++) {
+    conc_payload += ((char)payload[i]);
+  }
+  my_payload = conc_payload;
+  my_topic = topic;
+
+  // Variável message para controle do relé
+  String message = my_payload;
+
+if (message == "ligar"){
+ if (FLAG_LIGAR == 0){
+  FLAG_LIGAR = 1;
+  delay(500); // Debounce 
+ }
+}
+
+
+if (FLAG_LIGAR == 1){
+  // Controle do relé baseado no valor de message
+  if (message == "horario") {
+    digitalWrite(18, LOW);        // Desliga a direção anti-horária 
+    digitalWrite(19, HIGH);        // Liga a direção horária 
+    Serial.println("Esteira rodando no sentido horário");
+  }
+ 
+  }
+   if (FLAG_LIGAR == 0){
+  if (message == "anti-horario") {
+    digitalWrite(19, LOW);         // Desliga a direção horária 
+    digitalWrite(18, HIGH);       // Liga a direção anti-horária 
+    Serial.println("Esteira rodando no sentido anti-horário");
+  }
+ }
+    if (FLAG_LIGAR == 0){
+  if (message == "DesligaAnti") {
+    digitalWrite(18, LOW);       // Desliiga a direção anti-horária 
+    Serial.println("Sentido anti-horário desligado");
+  }
+ }
+  if (message == "parar") {
+if (FLAG_LIGAR == 1) {
+  digitalWrite(19, LOW);       // Desliga a direção horária
+        FLAG_LIGAR = 0;
+        delay(500); // Debounce
+   }
+    Serial.println("Esteira parada");
+ }
+ if (message == "Reiniciar") {
+  digitalWrite(19, LOW);       // Desliga a direção horária
+        delay(500); // Debounce
+    Serial.println("Tempo Maximo Atingido");
+    }
+}
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Tentando se conectar ao MQTT...");
+    
+    if (client.connect("Maluf_Client")) {
+      Serial.println("Conectado");
+      client.subscribe("esteira/direcao");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println("Tentando novamente em 5 segundos");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void setup() {
+  pinMode(14, INPUT_PULLDOWN); //sensor final
+  pinMode(12, INPUT_PULLDOWN); // Sensor liga esteira
+  pinMode(13, INPUT_PULLDOWN); //sensor contador meio
+  pinMode(32, INPUT_PULLDOWN); // vermelho (botao desliga)
+  pinMode(35, INPUT_PULLDOWN); // botao verde (Energiza sistema)
+  pinMode(18, OUTPUT);   // RELE anti-horária
+  pinMode(19, OUTPUT);   // RELE para direção horária
+  Serial.begin(115200);
+  Serial.println("Sensor de Movimento");
+  pinMode(buttonPin, INPUT); 
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+}
+
+
+
+void loop() {
+  reconnect();
+
+
+
+  client.loop();
+  
+if ((digitalRead(32) == HIGH)){
+  client.publish("esteira/direcao", "parar");
+  delay(500); // Debounce 
+  }
+
+
+
+
+if  ((digitalRead(35) == HIGH) && (FLAG_LIGAR == 0)) {
+  FLAG_LIGAR = 1;
+  Serial.println("Sistema energizado");
+  delay(500); // Debounce 
+  }
+  
+if  ((digitalRead(34) == HIGH) && (FLAG_LIGAR == 1)) {
+  FLAG_LIGAR = 0;
+   Serial.println("sistema desligado");
+   delay(500); // Debounce
+   }
+
+if (FLAG_LIGAR == 0) {
+digitalWrite(19, LOW);
+}
+
+if (FLAG_LIGAR == 0) {
+  // Lê o estado do botão
+  buttonState = digitalRead(buttonPin);
+
+  // Verifica se o botão foi pressionado
+  if (buttonState == LOW && lastButtonState == HIGH) {
+    client.publish("esteira/direcao", "DesligaAnti");
+  }
+
+  // Verifica se o botão foi solto
+  if (buttonState == HIGH && lastButtonState == LOW) {
+    client.publish("esteira/direcao", "anti-horario");
+  }
+
+  // Atualiza o estado anterior do botão
+  lastButtonState = buttonState;
+
+  delay(50);
+}
+  
+  if (FLAG_LIGAR == 1) {
+  // Leitura dos botões
+ 
+  
+  if ((digitalRead(14) == HIGH) && (FLAG == 0)) {
+    FLAG = 1;
+    Serial.println("Sensor ativado");
+    
+    Serial.println("Pino 19 ativado, sinal enviado.");
+  }
+
+  if ((digitalRead(14) == LOW) && (FLAG == 1)) {
+    FLAG = 0;
+    Serial.println("Sensor desativado");
+    client.publish("sensor/status", "1");  // Publica "1" no tópico MQTT
+     delay(1000);
+ }
+  if ((digitalRead(13) == HIGH) && (FLAG_INICIO == 0)) {
+    FLAG_INICIO = 1;
+    client.publish("esteira/direcao", "horario");
+    Serial.println("Identificado a ENTRADA de peça na esteira ");
+    
+  }
+
+  if ((digitalRead(13) == LOW) && (FLAG_INICIO == 1)) {
+    FLAG_INICIO = 0;
+    Serial.println("Sensor de entrada desativado");
+    client.publish("sensor/status", "2");  // Publica "2" no tópico MQTT
+     delay(1000);
+  }
+  if ((digitalRead(12) == HIGH) && (FLAG_FINAL == 0)) {
+    FLAG_FINAL = 1;
+    Serial.println("Identificado a SAIDA de peça na esteira ");
+    
+  }
+
+  if ((digitalRead(12) == LOW) && (FLAG_FINAL == 1)) {
+    FLAG_FINAL = 0;
+    Serial.println("Sensor de saida desativado");
+    client.publish("sensor/status", "4");  // Publica "2" no tópico MQTT
+    delay(1000);
+}
+}
+}
